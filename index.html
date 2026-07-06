@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DESCENT — 6,371 km to the center of the Earth</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,600;1,9..144,400&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  html { scroll-behavior: auto; }
+
+  body {
+    background:#050302;
+    color:#e9e2d6;
+    font-family:'Inter', sans-serif;
+    overflow-x:hidden;
+  }
+
+  #scene-container {
+    position:fixed;
+    top:0; left:0;
+    width:100vw; height:100vh;
+    z-index:1;
+  }
+  #scene-container canvas { display:block; }
+
+  #vignette {
+    position:fixed; inset:0;
+    z-index:2;
+    pointer-events:none;
+    background: radial-gradient(ellipse at center, transparent 40%, rgba(2,1,0,0.75) 100%);
+  }
+
+  #grain {
+    position:fixed; inset:0;
+    z-index:3;
+    pointer-events:none;
+    opacity:0.05;
+    mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .content {
+    position:relative;
+    z-index:5;
+  }
+
+  /* ---- Depth gauge, signature element ---- */
+  #gauge {
+    position:fixed;
+    right:clamp(16px, 4vw, 48px);
+    top:12vh;
+    height:76vh;
+    width:2px;
+    z-index:6;
+    background:linear-gradient(to bottom, rgba(233,226,214,0.06), rgba(233,226,214,0.18), rgba(233,226,214,0.06));
+  }
+  #gauge-fill {
+    position:absolute;
+    top:0; left:-1px;
+    width:4px;
+    height:0%;
+    background:linear-gradient(to bottom, #ffd23f, #ff6b35);
+    box-shadow:0 0 12px 2px rgba(255,140,50,0.6);
+    transition:height 0.05s linear;
+  }
+  .gauge-tick {
+    position:absolute;
+    left:-4px;
+    width:10px;
+    height:1px;
+    background:rgba(233,226,214,0.35);
+  }
+  .gauge-tick span {
+    position:absolute;
+    left:16px;
+    top:-7px;
+    font-family:'JetBrains Mono', monospace;
+    font-size:10px;
+    letter-spacing:0.05em;
+    color:rgba(233,226,214,0.45);
+    white-space:nowrap;
+  }
+  #depth-readout {
+    position:fixed;
+    right:clamp(16px, 4vw, 48px);
+    bottom:6vh;
+    z-index:6;
+    text-align:right;
+    font-family:'JetBrains Mono', monospace;
+  }
+  #depth-readout .num {
+    font-size:clamp(20px, 2.4vw, 30px);
+    color:#ffd23f;
+    text-shadow:0 0 20px rgba(255,150,40,0.5);
+    font-weight:500;
+  }
+  #depth-readout .unit {
+    font-size:11px;
+    color:rgba(233,226,214,0.5);
+    letter-spacing:0.1em;
+    display:block;
+    margin-top:2px;
+  }
+
+  /* ---- Sections ---- */
+  section {
+    position:relative;
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    padding:0 8vw;
+  }
+  section.right { justify-content:flex-end; }
+  section.left { justify-content:flex-start; }
+  section.center { justify-content:center; text-align:center; }
+
+  .panel { max-width:560px; }
+  section.center .panel { max-width:720px; }
+
+  .eyebrow {
+    font-family:'JetBrains Mono', monospace;
+    font-size:12px;
+    letter-spacing:0.18em;
+    text-transform:uppercase;
+    color:#ff8c50;
+    margin-bottom:1.4em;
+    display:flex;
+    align-items:center;
+    gap:0.8em;
+  }
+  .eyebrow::before {
+    content:'';
+    width:28px; height:1px;
+    background:#ff8c50;
+    display:inline-block;
+  }
+  section.right .eyebrow, section.right .eyebrow::before { order:2; }
+  section.right .eyebrow { justify-content:flex-end; }
+
+  h2 {
+    font-family:'Fraunces', serif;
+    font-weight:500;
+    font-size:clamp(2.4rem, 5vw, 4.2rem);
+    line-height:1.05;
+    letter-spacing:-0.01em;
+    margin-bottom:0.5em;
+  }
+  h2 em { font-style:italic; font-weight:300; color:#ffb37a; }
+
+  p.desc {
+    font-size:clamp(0.95rem, 1.1vw, 1.05rem);
+    line-height:1.7;
+    color:rgba(233,226,214,0.72);
+    font-weight:400;
+    max-width:46ch;
+  }
+  section.right p.desc, section.right .panel { margin-left:auto; }
+  section.center p.desc { max-width:58ch; margin:0 auto; }
+
+  .stat-row {
+    display:flex;
+    gap:2.4em;
+    margin-top:2.2em;
+  }
+  section.right .stat-row { justify-content:flex-end; }
+  .stat { font-family:'JetBrains Mono', monospace; }
+  .stat .v { font-size:1.4rem; color:#ffd23f; display:block; }
+  .stat .l { font-size:10px; letter-spacing:0.1em; color:rgba(233,226,214,0.45); text-transform:uppercase; }
+
+  /* Hero */
+  #hero {
+    flex-direction:column;
+    align-items:flex-start;
+    justify-content:center;
+    gap:0;
+  }
+  #hero .kicker {
+    font-family:'JetBrains Mono', monospace;
+    font-size:12px;
+    letter-spacing:0.2em;
+    color:rgba(233,226,214,0.5);
+    margin-bottom:2em;
+    text-transform:uppercase;
+  }
+  #hero h1 {
+    font-family:'Fraunces', serif;
+    font-weight:500;
+    font-size:clamp(3.2rem, 9vw, 7.5rem);
+    line-height:0.92;
+    letter-spacing:-0.02em;
+  }
+  #hero h1 em { font-style:italic; font-weight:300; color:#ff8c50; }
+  #hero .sub {
+    margin-top:1.6em;
+    max-width:42ch;
+    font-size:1.05rem;
+    line-height:1.7;
+    color:rgba(233,226,214,0.65);
+  }
+  #hero .scroll-cue {
+    margin-top:3.5em;
+    display:flex;
+    align-items:center;
+    gap:0.9em;
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px;
+    letter-spacing:0.14em;
+    color:rgba(233,226,214,0.4);
+    text-transform:uppercase;
+  }
+  .scroll-cue .line {
+    width:1px; height:38px;
+    background:linear-gradient(to bottom, rgba(233,226,214,0.5), transparent);
+    animation: pulse-down 2s ease-in-out infinite;
+  }
+  @keyframes pulse-down {
+    0%,100% { opacity:0.3; transform:scaleY(0.8); transform-origin:top; }
+    50% { opacity:1; transform:scaleY(1); transform-origin:top; }
+  }
+
+  /* Outro */
+  #outro {
+    flex-direction:column;
+    text-align:center;
+    align-items:center;
+    justify-content:center;
+    padding-bottom:14vh;
+  }
+  #outro h2 { max-width:16ch; }
+  #outro .credit {
+    margin-top:3em;
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px;
+    letter-spacing:0.14em;
+    color:rgba(233,226,214,0.35);
+    text-transform:uppercase;
+  }
+
+  @media (max-width: 720px) {
+    section { padding:0 6vw; }
+    #gauge { display:none; }
+    #depth-readout { left:6vw; right:auto; text-align:left; }
+    section.right p.desc, section.right .panel { margin-left:0; }
+    section.right .stat-row, section.right .eyebrow { justify-content:flex-start; }
+    section.right .eyebrow, section.right .eyebrow::before { order:0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .scroll-cue .line { animation:none; }
+    #gauge-fill { transition:none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="scene-container"></div>
+<div id="vignette"></div>
+<div id="grain"></div>
+
+<div id="gauge">
+  <div id="gauge-fill"></div>
+</div>
+<div id="depth-readout">
+  <span class="num" id="depth-num">0</span>
+  <span class="unit">km below surface</span>
+</div>
+
+<div class="content">
+
+  <section id="hero">
+    <div class="kicker">A field guide in six layers</div>
+    <h1>Descent to the<br><em>center</em> of the Earth</h1>
+    <p class="sub">6,371 kilometers separate the ground beneath your feet from a solid iron sphere as hot as the surface of the sun. Scroll to travel down.</p>
+    <div class="scroll-cue"><div class="line"></div>Scroll to begin</div>
+  </section>
+
+  <section class="right" data-depth="0" data-color="crust">
+    <div class="panel">
+      <div class="eyebrow">Layer 01 — 0–35 km</div>
+      <h2>The <em>crust</em></h2>
+      <p class="desc">Thin, cool, and brittle — the only part of the planet we've ever touched directly. Under the oceans it's barely 5 km thick; under the continents, up to 70. Every mountain, root, and fossil you'll ever see lives inside this shell.</p>
+      <div class="stat-row">
+        <div class="stat"><span class="v">1.5%</span><span class="l">of Earth's radius</span></div>
+        <div class="stat"><span class="v">~25°C</span><span class="l">avg. surface temp</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="left" data-depth="35" data-color="upper-mantle">
+    <div class="panel">
+      <div class="eyebrow">Layer 02 — 35–660 km</div>
+      <h2>Upper <em>mantle</em></h2>
+      <p class="desc">Below the crust, rock softens into rock that flows — slowly, like tar. This is the asthenosphere, the layer that lets tectonic plates glide and collide over millions of years, building the mountains layer one folds into layer two.</p>
+      <div class="stat-row">
+        <div class="stat"><span class="v">~900°C</span><span class="l">at 400 km</span></div>
+        <div class="stat"><span class="v">~4.4 g/cm³</span><span class="l">density</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="right" data-depth="660" data-color="lower-mantle">
+    <div class="panel">
+      <div class="eyebrow">Layer 03 — 660–2,900 km</div>
+      <h2>Lower <em>mantle</em></h2>
+      <p class="desc">Pressure here reaches 1.4 million atmospheres. Minerals are crushed into denser, unfamiliar crystal forms — bridgmanite, the most abundant mineral on Earth, exists almost nowhere but here, and nowhere on the surface at all.</p>
+      <div class="stat-row">
+        <div class="stat"><span class="v">2,200°C</span><span class="l">at the base</span></div>
+        <div class="stat"><span class="v">1.4M atm</span><span class="l">pressure</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="left" data-depth="2900" data-color="outer-core">
+    <div class="panel">
+      <div class="eyebrow">Layer 04 — 2,900–5,150 km</div>
+      <h2>Outer <em>core</em></h2>
+      <p class="desc">Solid rock gives way to liquid metal — a churning ocean of molten iron and nickel. Its convection currents generate the electric currents that generate Earth's magnetic field, the invisible shield that keeps the solar wind from stripping our atmosphere away.</p>
+      <div class="stat-row">
+        <div class="stat"><span class="v">~4,000°C</span><span class="l">average temp</span></div>
+        <div class="stat"><span class="v">Liquid</span><span class="l">iron + nickel</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="right" data-depth="5150" data-color="inner-core">
+    <div class="panel">
+      <div class="eyebrow">Layer 05 — 5,150–6,371 km</div>
+      <h2>Inner <em>core</em></h2>
+      <p class="desc">Hot enough to melt iron twice over, yet solid — squeezed into a crystal lattice by pressure alone. It's roughly the size of the Moon, growing by about a millimeter a year as the planet slowly cools, and it's almost as old as Earth itself.</p>
+      <div class="stat-row">
+        <div class="stat"><span class="v">~5,400°C</span><span class="l">core temperature</span></div>
+        <div class="stat"><span class="v">1,220 km</span><span class="l">radius</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="outro" data-depth="6371" data-color="center">
+    <div class="panel">
+      <div class="eyebrow" style="justify-content:center;">Journey's end — 6,371 km</div>
+      <h2>You've reached the <em>center</em>.</h2>
+      <p class="desc">As hot as the sun's surface, as heavy as a planet's worth of iron pressing down from every direction — and it's directly beneath wherever you're standing right now.</p>
+      <div class="credit">Built with three.js · scroll to resurface</div>
+    </div>
+  </section>
+
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type=https://drive.google.com/file/d/1zvKcsfqvdfDn42AcN2Ocaw3Hr_xGQCnw/view?usp=sharing>
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+
+/* ================================================================
+   REPLACE THE 3D OBJECT
+   Paste a URL to a .glb / .gltf file below and reload the page.
+   Leave blank to keep the procedural morphing shape.
+   Handles Draco-compressed files (common export from Sketchfab/Poly Haven).
+================================================================ */
+const CUSTOM_MODEL_URL = ''; // e.g. 'https://yourhost.com/assets/model.glb'
+
+/* ============ Depth gauge ticks ============ */
+const gauge = document.getElementById('gauge');
+const depthMarks = [0, 35, 660, 2900, 5150, 6371];
+depthMarks.forEach(d => {
+  const pct = (d / 6371) * 100;
+  const tick = document.createElement('div');
+  tick.className = 'gauge-tick';
+  tick.style.top = pct + '%';
+  const label = document.createElement('span');
+  label.textContent = d + ' km';
+  tick.appendChild(label);
+  gauge.appendChild(tick);
+});
+const gaugeFill = document.getElementById('gauge-fill');
+const depthNum = document.getElementById('depth-num');
+
+/* ============ Scroll progress ============ */
+let scrollProgress = 0;
+let smoothProgress = 0;
+function updateScrollProgress() {
+  const doc = document.documentElement;
+  const max = doc.scrollHeight - window.innerHeight;
+  scrollProgress = max > 0 ? Math.min(Math.max(window.scrollY / max, 0), 1) : 0;
+}
+window.addEventListener('scroll', updateScrollProgress, { passive:true });
+window.addEventListener('resize', updateScrollProgress);
+updateScrollProgress();
+
+/* ============ Color stops per layer (0..1 progress) ============ */
+const colorStops = [
+  { p:0.00, core:new THREE.Color('#3d4a52'), glow:new THREE.Color('#5a7a8c'), fog:new THREE.Color('#050302'), light:new THREE.Color('#7ea3b3') },
+  { p:0.20, core:new THREE.Color('#4a3728'), glow:new THREE.Color('#8a5a3a'), fog:new THREE.Color('#0a0503'), light:new THREE.Color('#c98a52') },
+  { p:0.42, core:new THREE.Color('#5c2c1a'), glow:new THREE.Color('#b8451f'), fog:new THREE.Color('#100502'), light:new THREE.Color('#e8632f') },
+  { p:0.64, core:new THREE.Color('#7a2a0e'), glow:new THREE.Color('#ff6b35'), fog:new THREE.Color('#160502'), light:new THREE.Color('#ff8c50') },
+  { p:0.84, core:new THREE.Color('#c04a12'), glow:new THREE.Color('#ffb347'), fog:new THREE.Color('#1c0703'), light:new THREE.Color('#ffcf7a') },
+  { p:1.00, core:new THREE.Color('#ffb347'), glow:new THREE.Color('#ffe9a8'), fog:new THREE.Color('#221004'), light:new THREE.Color('#ffffff') },
+];
+function lerpColorStops(p) {
+  for (let i=0;i<colorStops.length-1;i++){
+    const a=colorStops[i], b=colorStops[i+1];
+    if (p>=a.p && p<=b.p){
+      const t=(p-a.p)/(b.p-a.p);
+      return {
+        core: a.core.clone().lerp(b.core, t),
+        glow: a.glow.clone().lerp(b.glow, t),
+        fog: a.fog.clone().lerp(b.fog, t),
+        light: a.light.clone().lerp(b.light, t),
+      };
+    }
+  }
+  return colorStops[colorStops.length-1];
+}
+
+/* ============ Three.js scene ============ */
+const container = document.getElementById('scene-container');
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x050302, 0.055);
+
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.1, 100);
+camera.position.set(0, 0, 7.2);
+
+const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+container.appendChild(renderer.domElement);
+
+/* ---- Core object: displaced icosahedron with custom shader ---- */
+const geometry = new THREE.IcosahedronGeometry(1.9, 32);
+
+const noiseGLSL = `
+  vec3 mod289(vec3 x){return x - floor(x * (1.0/289.0)) * 289.0;}
+  vec4 mod289(vec4 x){return x - floor(x * (1.0/289.0)) * 289.0;}
+  vec4 permute(vec4 x){return mod289(((x*34.0)+1.0)*x);}
+  vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
+  float snoise(vec3 v){
+    const vec2 C = vec2(1.0/6.0, 1.0/3.0);
+    const vec4 D = vec4(0.0,0.5,1.0,2.0);
+    vec3 i  = floor(v + dot(v, C.yyy));
+    vec3 x0 = v - i + dot(i, C.xxx);
+    vec3 g = step(x0.yzx, x0.xyz);
+    vec3 l = 1.0 - g;
+    vec3 i1 = min(g.xyz, l.zxy);
+    vec3 i2 = max(g.xyz, l.zxy);
+    vec3 x1 = x0 - i1 + C.xxx;
+    vec3 x2 = x0 - i2 + C.yyy;
+    vec3 x3 = x0 - D.yyy;
+    i = mod289(i);
+    vec4 p = permute(permute(permute(
+      i.z + vec4(0.0, i1.z, i2.z, 1.0))
+      + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+      + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+    float n_ = 0.142857142857;
+    vec3 ns = n_ * D.wyz - D.xzx;
+    vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+    vec4 x_ = floor(j * ns.z);
+    vec4 y_ = floor(j - 7.0 * x_);
+    vec4 x = x_ *ns.x + ns.yyyy;
+    vec4 y = y_ *ns.x + ns.yyyy;
+    vec4 h = 1.0 - abs(x) - abs(y);
+    vec4 b0 = vec4(x.xy, y.xy);
+    vec4 b1 = vec4(x.zw, y.zw);
+    vec4 s0 = floor(b0)*2.0 + 1.0;
+    vec4 s1 = floor(b1)*2.0 + 1.0;
+    vec4 sh = -step(h, vec4(0.0));
+    vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy;
+    vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww;
+    vec3 p0 = vec3(a0.xy, h.x);
+    vec3 p1 = vec3(a0.zw, h.y);
+    vec3 p2 = vec3(a1.xy, h.z);
+    vec3 p3 = vec3(a1.zw, h.w);
+    vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
+    p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+    vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+    m = m * m;
+    return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
+  }
+`;
+
+const material = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: { value: 0 },
+    uProgress: { value: 0 },
+    uCoreColor: { value: new THREE.Color('#3d4a52') },
+    uGlowColor: { value: new THREE.Color('#5a7a8c') },
+    uLightColor: { value: new THREE.Color('#7ea3b3') },
+    uDisplace: { value: 0.5 },
+    uFreq: { value: 1.6 },
+  },
+  vertexShader: `
+    uniform float uTime;
+    uniform float uDisplace;
+    uniform float uFreq;
+    varying vec3 vNormal;
+    varying vec3 vPos;
+    varying float vNoise;
+    ${noiseGLSL}
+    void main(){
+      vNormal = normalize(normalMatrix * normal);
+      float n = snoise(position * uFreq + uTime * 0.12);
+      float n2 = snoise(position * uFreq * 2.3 - uTime * 0.08);
+      float displacement = n * uDisplace + n2 * uDisplace * 0.25;
+      vNoise = n;
+      vec3 displaced = position + normal * displacement;
+      vPos = displaced;
+      vec4 mvPosition = modelViewMatrix * vec4(displaced, 1.0);
+      gl_Position = projectionMatrix * mvPosition;
+    }
+  `,
+  fragmentShader: `
+    uniform vec3 uCoreColor;
+    uniform vec3 uGlowColor;
+    uniform vec3 uLightColor;
+    uniform float uProgress;
+    varying vec3 vNormal;
+    varying vec3 vPos;
+    varying float vNoise;
+    void main(){
+      vec3 viewDir = normalize(cameraPosition - vPos);
+      float fresnel = pow(1.0 - max(dot(viewDir, vNormal), 0.0), 2.2);
+      float nMix = smoothstep(-0.5, 0.6, vNoise);
+      vec3 base = mix(uCoreColor, uGlowColor, nMix);
+      vec3 rim = uLightColor * fresnel * (1.3 + uProgress * 1.4);
+      float emissiveBoost = 0.15 + uProgress * 0.9;
+      vec3 color = base * (0.6 + emissiveBoost) + rim;
+      gl_FragColor = vec4(color, 1.0);
+    }
+  `,
+});
+
+let coreMesh = new THREE.Mesh(geometry, material);
+let coreBaseScale = 1;
+scene.add(coreMesh);
+
+/* ---- Optional: load a custom model in place of the procedural shape ---- */
+let customMeshes = [];
+if (CUSTOM_MODEL_URL) {
+  const dracoLoader = new DRACOLoader();
+  dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+  const gltfLoader = new GLTFLoader();
+  gltfLoader.setDRACOLoader(dracoLoader);
+
+  gltfLoader.load(
+    CUSTOM_MODEL_URL,
+    (gltf) => {
+      const model = gltf.scene;
+
+      // Center and scale the model to roughly match the procedural shape's footprint
+      const box = new THREE.Box3().setFromObject(model);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      model.position.sub(center);
+      const maxDim = Math.max(size.x, size.y, size.z) || 1;
+      const fitScale = 3.4 / maxDim;
+
+      const wrapper = new THREE.Group();
+      wrapper.add(model);
+      wrapper.scale.setScalar(fitScale);
+
+      // Collect meshes so the animate loop can tint them as "depth" progresses
+      model.traverse((child) => {
+        if (child.isMesh) {
+          child.material = Array.isArray(child.material)
+            ? child.material.map(m => m.clone())
+            : child.material.clone();
+          customMeshes.push(child);
+        }
+      });
+
+      scene.remove(coreMesh);
+      scene.add(wrapper);
+      coreMesh = wrapper;
+      coreBaseScale = 1; // fitScale is already baked into wrapper.scale
+    },
+    undefined,
+    (error) => console.error('Custom model failed to load, keeping procedural shape:', error)
+  );
+}
+
+/* ---- Wireframe shell for structure/depth cue ---- */
+const wireGeo = new THREE.IcosahedronGeometry(2.6, 1);
+const wireMat = new THREE.MeshBasicMaterial({ color:0x8a97a0, wireframe:true, transparent:true, opacity:0.12 });
+const wireMesh = new THREE.Mesh(wireGeo, wireMat);
+scene.add(wireMesh);
+
+/* ---- Ambient particle field (mineral dust) ---- */
+const particleCount = 900;
+const particlePositions = new Float32Array(particleCount * 3);
+for (let i=0;i<particleCount;i++){
+  const r = 6 + Math.random()*14;
+  const theta = Math.random()*Math.PI*2;
+  const phi = Math.acos((Math.random()*2)-1);
+  particlePositions[i*3]   = r*Math.sin(phi)*Math.cos(theta);
+  particlePositions[i*3+1] = r*Math.sin(phi)*Math.sin(theta);
+  particlePositions[i*3+2] = r*Math.cos(phi) - 10;
+}
+const particleGeo = new THREE.BufferGeometry();
+particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+const particleMat = new THREE.PointsMaterial({ color:0xaab4bb, size:0.03, transparent:true, opacity:0.5 });
+const particles = new THREE.Points(particleGeo, particleMat);
+scene.add(particles);
+
+/* ---- Lighting ---- */
+const ambient = new THREE.AmbientLight(0x404040, 0.6);
+scene.add(ambient);
+const keyLight = new THREE.PointLight(0x7ea3b3, 3, 20);
+keyLight.position.set(3, 2, 4);
+scene.add(keyLight);
+const rimLight = new THREE.PointLight(0xffffff, 1.2, 20);
+rimLight.position.set(-3, -2, -3);
+scene.add(rimLight);
+
+/* ============ Resize ============ */
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* ============ Animation loop ============ */
+const clock = new THREE.Clock();
+
+function animate(){
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+
+  smoothProgress += (scrollProgress - smoothProgress) * 0.08;
+
+  const colors = lerpColorStops(smoothProgress);
+
+  material.uniforms.uTime.value = t;
+  material.uniforms.uProgress.value = smoothProgress;
+  material.uniforms.uCoreColor.value.copy(colors.core);
+  material.uniforms.uGlowColor.value.copy(colors.glow);
+  material.uniforms.uLightColor.value.copy(colors.light);
+  material.uniforms.uDisplace.value = 0.55 - smoothProgress*0.35;
+  material.uniforms.uFreq.value = 1.4 + smoothProgress*1.8;
+
+  keyLight.color.copy(colors.light);
+  rimLight.color.copy(colors.glow);
+  scene.fog.color.copy(colors.fog);
+  renderer.setClearColor(colors.fog, 1);
+
+  wireMat.opacity = 0.16 - smoothProgress*0.1;
+  wireMesh.rotation.y = t*0.03;
+  wireMesh.rotation.x = t*0.015;
+  wireMesh.scale.setScalar(1 - smoothProgress*0.25);
+
+  coreMesh.rotation.y = t*0.15 + smoothProgress*Math.PI*0.6;
+  coreMesh.rotation.x = Math.sin(t*0.1)*0.15;
+  coreMesh.scale.setScalar(coreBaseScale * (0.85 + smoothProgress*0.55));
+
+  if (customMeshes.length) {
+    customMeshes.forEach((child) => {
+      const mats = Array.isArray(child.material) ? child.material : [child.material];
+      mats.forEach((m) => {
+        if ('emissive' in m && !m.emissiveMap) {
+          m.emissive.copy(colors.glow);
+          m.emissiveIntensity = 0.15 + smoothProgress*0.9;
+        }
+      });
+    });
+  }
+
+  particles.rotation.y = t*0.01;
+  particleMat.color.copy(colors.light).lerp(new THREE.Color(0xffffff), 0.3);
+  particleMat.opacity = 0.5 - smoothProgress*0.25;
+
+  camera.position.z = 7.2 - smoothProgress*2.6;
+  camera.position.y = smoothProgress * -0.3;
+  camera.lookAt(0,0,0);
+
+  renderer.render(scene, camera);
+
+  gaugeFill.style.height = (smoothProgress*100).toFixed(2) + '%';
+  const depthKm = Math.round(smoothProgress * 6371);
+  depthNum.textContent = depthKm.toLocaleString();
+}
+animate();
+</script>
+</body>
+</html>
