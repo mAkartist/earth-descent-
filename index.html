@@ -267,7 +267,7 @@
   <span class="num" id="depth-num">0</span>
   <span class="unit">km below surface</span>
 </div>
-
+<div id="debug-status" style="position:fixed;top:8px;left:8px;z-index:9999;font-family:monospace;font-size:12px;padding:6px 10px;background:rgba(0,0,0,0.75);color:#8effa0;border-radius:4px;max-width:90vw;word-break:break-all;"></div>
 <div class="content">
 
   <section id="hero">
@@ -546,6 +546,8 @@ scene.add(coreMesh);
 /* ---- Optional: load a custom model in place of the procedural shape ---- */
 let customMeshes = [];
 if (CUSTOM_MODEL_URL) {
+  document.getElementById('debug-status').textContent = 'Loading model...';
+
   const dracoLoader = new DRACOLoader();
   dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
   const gltfLoader = new GLTFLoader();
@@ -554,37 +556,50 @@ if (CUSTOM_MODEL_URL) {
   gltfLoader.load(
     CUSTOM_MODEL_URL,
     (gltf) => {
-      const model = gltf.scene;
+      try {
+        const model = gltf.scene;
 
-      // Center and scale the model to roughly match the procedural shape's footprint
-      const box = new THREE.Box3().setFromObject(model);
-      const center = box.getCenter(new THREE.Vector3());
-      const size = box.getSize(new THREE.Vector3());
-      model.position.sub(center);
-      const maxDim = Math.max(size.x, size.y, size.z) || 1;
-      const fitScale = 3.4 / maxDim;
+        // Center and scale the model to roughly match the procedural shape's footprint
+        const box = new THREE.Box3().setFromObject(model);
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        model.position.sub(center);
+        const maxDim = Math.max(size.x, size.y, size.z) || 1;
+        const fitScale = 3.4 / maxDim;
 
-      const wrapper = new THREE.Group();
-      wrapper.add(model);
-      wrapper.scale.setScalar(fitScale);
+        const wrapper = new THREE.Group();
+        wrapper.add(model);
+        wrapper.scale.setScalar(fitScale);
 
-      // Collect meshes so the animate loop can tint them as "depth" progresses
-      model.traverse((child) => {
-        if (child.isMesh) {
-          child.material = Array.isArray(child.material)
-            ? child.material.map(m => m.clone())
-            : child.material.clone();
-          customMeshes.push(child);
-        }
-      });
+        // Collect meshes so the animate loop can tint them as "depth" progresses
+        model.traverse((child) => {
+          if (child.isMesh) {
+            child.material = Array.isArray(child.material)
+              ? child.material.map(m => m.clone())
+              : child.material.clone();
+            customMeshes.push(child);
+          }
+        });
 
-      scene.remove(coreMesh);
-      scene.add(wrapper);
-      coreMesh = wrapper;
-      coreBaseScale = 1; // fitScale is already baked into wrapper.scale
+        scene.remove(coreMesh);
+        scene.add(wrapper);
+        coreMesh = wrapper;
+        coreBaseScale = 1; // fitScale is already baked into wrapper.scale
+
+        document.getElementById('debug-status').textContent =
+          'Model loaded OK — ' + customMeshes.length + ' mesh(es), size ' +
+          size.x.toFixed(2) + 'x' + size.y.toFixed(2) + 'x' + size.z.toFixed(2);
+      } catch (e) {
+        document.getElementById('debug-status').textContent = 'Loaded but crashed while displaying: ' + e.message;
+        document.getElementById('debug-status').style.color = '#ff6b6b';
+      }
     },
     undefined,
-    (error) => console.error('Custom model failed to load, keeping procedural shape:', error)
+    (error) => {
+      document.getElementById('debug-status').textContent =
+        'Failed to load: ' + (error && error.message ? error.message : JSON.stringify(error));
+      document.getElementById('debug-status').style.color = '#ff6b6b';
+    }
   );
 }
 
